@@ -1,0 +1,10 @@
+# Copy this file to terraform.tfvars and fill in your values
+# terraform.tfvars should NEVER be committed to git
+
+project_id  = "shark-industries-prod"
+domain_name = "sharkoutboards.com"
+
+# Add your SSH public keys here for VM access
+ssh_public_keys = [
+  # "ssh-rsa AAAAB3NzaC1yc2E... user@example.com",
+]
