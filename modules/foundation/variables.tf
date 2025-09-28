@@ -42,3 +42,15 @@ variable "ssh_public_keys" {
   type        = list(string)
   default     = []
 }
+
+variable "use_static_ip" {
+  description = "Whether to use a static IP (costs ~$3/month) or dynamic IP (free)"
+  type        = bool
+  default     = false
+}
+
+variable "dns_provider" {
+  description = "DNS provider to use: 'gcp' for Cloud DNS or 'external' for Cloudflare/other"
+  type        = string
+  default     = "gcp"
+}

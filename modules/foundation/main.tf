@@ -24,8 +24,9 @@ resource "google_compute_subnetwork" "main" {
   project       = var.project_id
 }
 
-# Static IP for VM
+# Static IP for VM (optional - costs ~$3/month)
 resource "google_compute_address" "vm_ip" {
+  count   = var.use_static_ip ? 1 : 0
   name    = "${var.environment}-vm-ip"
   region  = var.region
   project = var.project_id
@@ -91,6 +92,24 @@ resource "google_compute_firewall" "smtp" {
   target_tags   = ["mail-server"]
 }
 
+locals {
+  # Get the actual IP: static if configured, otherwise use the ephemeral IP
+  vm_external_ip = var.use_static_ip ? google_compute_address.vm_ip[0].address : google_compute_instance.main_vm.network_interface[0].access_config[0].nat_ip
+
+  # DNS update script for dynamic IP
+  dns_update_script = var.dns_provider == "gcp" && !var.use_static_ip ? <<-SCRIPT
+    # Update Cloud DNS with current IP
+    ZONE="${var.environment}-dns-zone"
+    DOMAIN="${var.domain_name}"
+    CURRENT_IP=$(curl -s http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip -H "Metadata-Flavor: Google")
+
+    # Update A records via gcloud
+    gcloud dns record-sets update $DOMAIN --type=A --zone=$ZONE --rrdatas=$CURRENT_IP --ttl=60
+    gcloud dns record-sets update www.$DOMAIN --type=A --zone=$ZONE --rrdatas=$CURRENT_IP --ttl=60
+    gcloud dns record-sets update mail.$DOMAIN --type=A --zone=$ZONE --rrdatas=$CURRENT_IP --ttl=60
+  SCRIPT : ""
+}
+
 # Compute Instance
 resource "google_compute_instance" "main_vm" {
   name         = "${var.environment}-web-mail-server"
@@ -111,8 +130,12 @@ resource "google_compute_instance" "main_vm" {
     network    = google_compute_network.main.id
     subnetwork = google_compute_subnetwork.main.id
 
-    access_config {
-      nat_ip = google_compute_address.vm_ip.address
+    # Dynamic config for access - static IP if available, otherwise ephemeral
+    dynamic "access_config" {
+      for_each = [1]
+      content {
+        nat_ip = var.use_static_ip ? google_compute_address.vm_ip[0].address : null
+      }
     }
   }
 
@@ -123,7 +146,7 @@ resource "google_compute_instance" "main_vm" {
   metadata_startup_script = <<-EOF
     #!/bin/bash
     apt-get update
-    apt-get install -y nginx certbot python3-certbot-nginx postfix
+    apt-get install -y nginx certbot python3-certbot-nginx postfix curl
 
     # Basic nginx setup
     systemctl start nginx
@@ -132,11 +155,37 @@ resource "google_compute_instance" "main_vm" {
     # Basic postfix setup for email forwarding (to be configured later)
     systemctl start postfix
     systemctl enable postfix
+
+    ${local.dns_update_script}
+
+    # Set up a cron job to update DNS if using dynamic IP with GCP DNS
+    ${var.dns_provider == "gcp" && !var.use_static_ip ? <<-CRON
+    cat > /etc/cron.d/update-dns <<'CRONEOF'
+    */5 * * * * root /usr/local/bin/update-dns.sh
+    CRONEOF
+
+    cat > /usr/local/bin/update-dns.sh <<'DNSEOF'
+    #!/bin/bash
+    ZONE="${var.environment}-dns-zone"
+    DOMAIN="${var.domain_name}"
+    CURRENT_IP=$(curl -s http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip -H "Metadata-Flavor: Google")
+    RECORDED_IP=$(dig +short @8.8.8.8 $DOMAIN)
+
+    if [ "$CURRENT_IP" != "$RECORDED_IP" ]; then
+      gcloud dns record-sets update $DOMAIN --type=A --zone=$ZONE --rrdatas=$CURRENT_IP --ttl=60
+      gcloud dns record-sets update www.$DOMAIN --type=A --zone=$ZONE --rrdatas=$CURRENT_IP --ttl=60
+      gcloud dns record-sets update mail.$DOMAIN --type=A --zone=$ZONE --rrdatas=$CURRENT_IP --ttl=60
+    fi
+    DNSEOF
+
+    chmod +x /usr/local/bin/update-dns.sh
+    CRON : ""}
   EOF
 }
 
-# Cloud DNS Zone
+# Cloud DNS Zone (only if using GCP DNS)
 resource "google_dns_managed_zone" "main" {
+  count       = var.dns_provider == "gcp" ? 1 : 0
   name        = "${var.environment}-dns-zone"
   dns_name    = "${var.domain_name}."
   description = "DNS zone for ${var.domain_name}"
@@ -145,40 +194,44 @@ resource "google_dns_managed_zone" "main" {
 
 # DNS A Record for root domain
 resource "google_dns_record_set" "a_record" {
-  name         = google_dns_managed_zone.main.dns_name
+  count        = var.dns_provider == "gcp" ? 1 : 0
+  name         = google_dns_managed_zone.main[0].dns_name
   type         = "A"
-  ttl          = 300
-  managed_zone = google_dns_managed_zone.main.name
-  rrdatas      = [google_compute_address.vm_ip.address]
+  ttl          = var.use_static_ip ? 300 : 60  # Lower TTL for dynamic IP
+  managed_zone = google_dns_managed_zone.main[0].name
+  rrdatas      = [local.vm_external_ip]
   project      = var.project_id
 }
 
 # DNS A Record for www
 resource "google_dns_record_set" "www_record" {
-  name         = "www.${google_dns_managed_zone.main.dns_name}"
+  count        = var.dns_provider == "gcp" ? 1 : 0
+  name         = "www.${google_dns_managed_zone.main[0].dns_name}"
   type         = "A"
-  ttl          = 300
-  managed_zone = google_dns_managed_zone.main.name
-  rrdatas      = [google_compute_address.vm_ip.address]
+  ttl          = var.use_static_ip ? 300 : 60  # Lower TTL for dynamic IP
+  managed_zone = google_dns_managed_zone.main[0].name
+  rrdatas      = [local.vm_external_ip]
   project      = var.project_id
 }
 
 # DNS MX Record for email
 resource "google_dns_record_set" "mx_record" {
-  name         = google_dns_managed_zone.main.dns_name
+  count        = var.dns_provider == "gcp" ? 1 : 0
+  name         = google_dns_managed_zone.main[0].dns_name
   type         = "MX"
   ttl          = 300
-  managed_zone = google_dns_managed_zone.main.name
+  managed_zone = google_dns_managed_zone.main[0].name
   rrdatas      = ["10 mail.${var.domain_name}."]
   project      = var.project_id
 }
 
 # DNS A Record for mail subdomain
 resource "google_dns_record_set" "mail_record" {
-  name         = "mail.${google_dns_managed_zone.main.dns_name}"
+  count        = var.dns_provider == "gcp" ? 1 : 0
+  name         = "mail.${google_dns_managed_zone.main[0].dns_name}"
   type         = "A"
-  ttl          = 300
-  managed_zone = google_dns_managed_zone.main.name
-  rrdatas      = [google_compute_address.vm_ip.address]
+  ttl          = var.use_static_ip ? 300 : 60  # Lower TTL for dynamic IP
+  managed_zone = google_dns_managed_zone.main[0].name
+  rrdatas      = [local.vm_external_ip]
   project      = var.project_id
 }

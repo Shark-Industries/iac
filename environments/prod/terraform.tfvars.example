@@ -4,6 +4,19 @@
 project_id  = "shark-industries-prod"
 domain_name = "sharkoutboards.com"
 
+# Cost optimization options:
+# Option 1: Ultra-low cost (~$0.20/month) - Dynamic IP with Cloud DNS
+use_static_ip = false  # Dynamic IP (free, may change on VM restart)
+dns_provider  = "gcp"  # Cloud DNS ($0.20/month)
+
+# Option 2: Zero infrastructure cost - Dynamic IP with external DNS
+# use_static_ip = false
+# dns_provider  = "external"  # Use Cloudflare free tier
+
+# Option 3: Static IP (~$3.20/month) - Most reliable but costs more
+# use_static_ip = true
+# dns_provider  = "gcp"
+
 # Add your SSH public keys here for VM access
 ssh_public_keys = [
   # "ssh-rsa AAAAB3NzaC1yc2E... user@example.com",

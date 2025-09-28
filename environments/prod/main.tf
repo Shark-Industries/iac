@@ -28,4 +28,6 @@ module "foundation" {
   domain_name     = var.domain_name
   environment     = var.environment
   ssh_public_keys = var.ssh_public_keys
+  use_static_ip   = var.use_static_ip
+  dns_provider    = var.dns_provider
 }

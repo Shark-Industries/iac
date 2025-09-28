@@ -6,10 +6,20 @@ This repository contains the Terraform configuration for Shark Industries' Googl
 
 - **Single GCP Project**: `shark-industries-prod`
 - **Core Services**:
-  - Cloud DNS for domain management
-  - Compute Engine VM (e2-micro) for web hosting
-  - Static IP addressing
+  - Compute Engine VM (e2-micro) - Free tier eligible
+  - Optional Cloud DNS or external DNS (Cloudflare)
+  - Optional static or dynamic IP addressing
   - Firewall rules for HTTP/HTTPS/Email
+
+## Cost Optimization
+
+This infrastructure supports three deployment modes:
+
+1. **Ultra-low cost** (~$0.20/month): Dynamic IP + Cloud DNS
+2. **Zero infrastructure cost**: Dynamic IP + Cloudflare DNS (free)
+3. **Static IP** (~$3.20/month): Most reliable but costs more
+
+See `docs/CLOUDFLARE_SETUP.md` for free DNS option.
 
 ## Structure
 
