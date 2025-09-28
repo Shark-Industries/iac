@@ -1,10 +1,10 @@
-# Shark Industries - Infrastructure as Code
+# Shark Outboards - Infrastructure as Code
 
-This repository contains the Terraform configuration for Shark Industries' Google Cloud Platform infrastructure.
+This repository contains the Terraform configuration for Shark Outboards' Google Cloud Platform infrastructure.
 
 ## Architecture
 
-- **Single GCP Project**: `shark-industries-prod`
+- **Single GCP Project**: `shark-outboards-prod`
 - **Core Services**:
   - Compute Engine VM (e2-micro) - Free tier eligible
   - Optional Cloud DNS or external DNS (Cloudflare)
@@ -45,23 +45,23 @@ See `docs/CLOUDFLARE_SETUP.md` for free DNS option.
 
 1. Create a GCP project manually or via `gcloud`:
    ```bash
-   gcloud projects create shark-industries-prod --name="Shark Industries Production"
+   gcloud projects create shark-outboards-prod --name="Shark Outboards Production"
    ```
 
 2. Enable required APIs:
    ```bash
-   gcloud services enable compute.googleapis.com dns.googleapis.com --project=shark-industries-prod
+   gcloud services enable compute.googleapis.com dns.googleapis.com --project=shark-outboards-prod
    ```
 
 3. Create a service account for Terraform:
    ```bash
-   gcloud iam service-accounts create terraform --project=shark-industries-prod
+   gcloud iam service-accounts create terraform --project=shark-outboards-prod
    ```
 
 4. Set up authentication (save key locally, never commit):
    ```bash
    gcloud iam service-accounts keys create ~/terraform-key.json \
-     --iam-account=terraform@shark-industries-prod.iam.gserviceaccount.com
+     --iam-account=terraform@shark-outboards-prod.iam.gserviceaccount.com
    ```
 
 ## Deployment

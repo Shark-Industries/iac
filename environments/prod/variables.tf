@@ -1,7 +1,7 @@
 variable "project_id" {
   description = "The GCP project ID"
   type        = string
-  default     = "shark-industries-prod"
+  default     = "shark-outboards-prod"
 }
 
 variable "region" {

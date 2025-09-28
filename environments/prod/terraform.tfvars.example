@@ -1,7 +1,7 @@
 # Copy this file to terraform.tfvars and fill in your values
 # terraform.tfvars should NEVER be committed to git
 
-project_id  = "shark-industries-prod"
+project_id  = "shark-outboards-prod"
 domain_name = "sharkoutboards.com"
 
 # Cost optimization options:

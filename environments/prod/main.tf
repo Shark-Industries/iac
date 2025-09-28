@@ -2,7 +2,7 @@ terraform {
   required_version = ">= 1.0"
 
   backend "gcs" {
-    bucket = "shark-industries-terraform-state"
+    bucket = "shark-outboards-terraform-state"
     prefix = "prod"
   }
 

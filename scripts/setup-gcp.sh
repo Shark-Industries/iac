@@ -3,7 +3,7 @@
 # Setup script for GCP project and service account
 # Run this once to initialize the GCP project
 
-PROJECT_ID="shark-industries-prod"
+PROJECT_ID="shark-outboards-prod"
 BILLING_ACCOUNT_ID=""  # Set your billing account ID
 SERVICE_ACCOUNT_NAME="terraform"
 REGION="us-central1"
@@ -12,7 +12,7 @@ echo "Setting up GCP project: $PROJECT_ID"
 
 # Create project
 echo "Creating project..."
-gcloud projects create $PROJECT_ID --name="Shark Industries Production"
+gcloud projects create $PROJECT_ID --name="Shark Outboards Production"
 
 # Link billing account (requires billing account ID)
 if [ -n "$BILLING_ACCOUNT_ID" ]; then
@@ -59,10 +59,10 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 
 # Create GCS bucket for Terraform state
 echo "Creating Terraform state bucket..."
-gsutil mb -p $PROJECT_ID -c STANDARD -l $REGION gs://shark-industries-terraform-state/
+gsutil mb -p $PROJECT_ID -c STANDARD -l $REGION gs://shark-outboards-terraform-state/
 
 # Enable versioning on the bucket
-gsutil versioning set on gs://shark-industries-terraform-state/
+gsutil versioning set on gs://shark-outboards-terraform-state/
 
 # Create service account key
 echo "Creating service account key..."
