@@ -4,7 +4,7 @@ This repository contains the Terraform configuration for Shark Outboards' Google
 
 ## Architecture
 
-- **Single GCP Project**: `shark-outboards-prod`
+- **Single GCP Project**: `shark-outboards-pro`
 - **Core Services**:
   - Compute Engine VM (e2-micro) - Free tier eligible
   - Optional Cloud DNS or external DNS (Cloudflare)
@@ -45,23 +45,23 @@ See `docs/CLOUDFLARE_SETUP.md` for free DNS option.
 
 1. Create a GCP project manually or via `gcloud`:
    ```bash
-   gcloud projects create shark-outboards-prod --name="Shark Outboards Production"
+   gcloud projects create shark-outboards-pro --name="Shark Outboards Production"
    ```
 
 2. Enable required APIs:
    ```bash
-   gcloud services enable compute.googleapis.com dns.googleapis.com --project=shark-outboards-prod
+   gcloud services enable compute.googleapis.com dns.googleapis.com --project=shark-outboards-pro
    ```
 
 3. Create a service account for Terraform:
    ```bash
-   gcloud iam service-accounts create terraform --project=shark-outboards-prod
+   gcloud iam service-accounts create terraform --project=shark-outboards-pro
    ```
 
 4. Set up authentication (save key locally, never commit):
    ```bash
    gcloud iam service-accounts keys create ~/terraform-key.json \
-     --iam-account=terraform@shark-outboards-prod.iam.gserviceaccount.com
+     --iam-account=terraform@shark-outboards-pro.iam.gserviceaccount.com
    ```
 
 ## Deployment
@@ -74,6 +74,42 @@ terraform init
 terraform plan
 terraform apply
 ```
+
+## Current Infrastructure Status
+
+**LIVE PRODUCTION SYSTEM**
+- **Project**: shark-outboards (417349761648)
+- **VM**: prod-web-mail-server (34.30.150.73)
+- **SSH Access**: Configured for admin user
+- **Email Server**: Postfix running and configured
+
+### SSH Access
+```bash
+ssh admin@34.30.150.73
+```
+
+### DNS Nameservers (for Route53)
+```
+ns-cloud-c1.googledomains.com
+ns-cloud-c2.googledomains.com
+ns-cloud-c3.googledomains.com
+ns-cloud-c4.googledomains.com
+```
+
+### Email Configuration
+Edit forwarding rules:
+```bash
+sudo nano /etc/postfix/virtual
+sudo postmap /etc/postfix/virtual
+sudo systemctl reload postfix
+```
+
+## Infrastructure as Code
+
+Your SSH key is configured in `environments/prod/variables.tf`. When recreating:
+- VM will automatically include your SSH key
+- Email forwarding will be pre-configured
+- DNS records will be set up automatically
 
 ## GitHub Actions
 

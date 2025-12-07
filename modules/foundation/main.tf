@@ -95,19 +95,6 @@ resource "google_compute_firewall" "smtp" {
 locals {
   # Get the actual IP: static if configured, otherwise use the ephemeral IP
   vm_external_ip = var.use_static_ip ? google_compute_address.vm_ip[0].address : google_compute_instance.main_vm.network_interface[0].access_config[0].nat_ip
-
-  # DNS update script for dynamic IP
-  dns_update_script = var.dns_provider == "gcp" && !var.use_static_ip ? <<-SCRIPT
-    # Update Cloud DNS with current IP
-    ZONE="${var.environment}-dns-zone"
-    DOMAIN="${var.domain_name}"
-    CURRENT_IP=$(curl -s http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip -H "Metadata-Flavor: Google")
-
-    # Update A records via gcloud
-    gcloud dns record-sets update $DOMAIN --type=A --zone=$ZONE --rrdatas=$CURRENT_IP --ttl=60
-    gcloud dns record-sets update www.$DOMAIN --type=A --zone=$ZONE --rrdatas=$CURRENT_IP --ttl=60
-    gcloud dns record-sets update mail.$DOMAIN --type=A --zone=$ZONE --rrdatas=$CURRENT_IP --ttl=60
-  SCRIPT : ""
 }
 
 # Compute Instance
@@ -145,41 +132,91 @@ resource "google_compute_instance" "main_vm" {
 
   metadata_startup_script = <<-EOF
     #!/bin/bash
+    set -e
+
+    # Log everything to startup script log
+    exec > >(tee -a /var/log/startup-script.log) 2>&1
+    echo "Starting startup script at $(date)"
+
+    # Update package list
     apt-get update
+
+    # Set non-interactive mode to avoid prompts
+    export DEBIAN_FRONTEND=noninteractive
+
+    # Pre-configure Postfix before installation
+    debconf-set-selections <<< "postfix postfix/mailname string ${var.domain_name}"
+    debconf-set-selections <<< "postfix postfix/main_mailer_type select Internet Site"
+
+    # Install packages
     apt-get install -y nginx certbot python3-certbot-nginx postfix curl
+    echo "Packages installed successfully"
 
     # Basic nginx setup
     systemctl start nginx
     systemctl enable nginx
+    echo "Nginx started and enabled"
 
-    # Basic postfix setup for email forwarding (to be configured later)
-    systemctl start postfix
+    # Create basic postfix configuration
+    cat > /etc/postfix/main.cf <<'POSTFIXEOF'
+# Basic configuration
+smtpd_banner = $myhostname ESMTP $mail_name (Shark Outboards Mail Server)
+biff = no
+append_dot_mydomain = no
+readme_directory = no
+
+# Network settings
+inet_interfaces = all
+inet_protocols = ipv4
+mydestination = ${var.domain_name}, localhost
+myhostname = mail.${var.domain_name}
+myorigin = ${var.domain_name}
+
+# Virtual alias setup for forwarding
+virtual_alias_domains = ${var.domain_name}
+virtual_alias_maps = hash:/etc/postfix/virtual
+
+# Security and anti-spam basics
+smtpd_helo_required = yes
+smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination
+disable_vrfy_command = yes
+
+# TLS support
+smtpd_use_tls = yes
+smtpd_tls_cert_file = /etc/ssl/certs/ssl-cert-snakeoil.pem
+smtpd_tls_key_file = /etc/ssl/private/ssl-cert-snakeoil.key
+smtpd_tls_security_level = may
+
+# Relay configuration with fallback ports
+relayhost = [smtp.gmail.com]:587
+smtp_use_tls = yes
+smtp_tls_security_level = encrypt
+smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt
+smtp_fallback_relay = [smtp.gmail.com]:25,[smtp.gmail.com]:465
+POSTFIXEOF
+    echo "Postfix main.cf created"
+
+    # Create virtual aliases file with Simon's forwarding rules
+    cat > /etc/postfix/virtual <<'VIRTUALEOF'
+# Simon's Email forwarding rules
+simon@${var.domain_name}                simon.cederqvist@gmail.com
+simon.cederqvist@${var.domain_name}     simon.cederqvist@gmail.com
+
+# Additional forwarding rules can be added here
+# Format: incoming@${var.domain_name} destination@example.com
+VIRTUALEOF
+    echo "Virtual aliases file created"
+
+    # Generate virtual alias database
+    postmap /etc/postfix/virtual
+    echo "Virtual alias database generated"
+
+    # Restart and enable postfix
+    systemctl restart postfix
     systemctl enable postfix
+    echo "Postfix restarted and enabled"
 
-    ${local.dns_update_script}
-
-    # Set up a cron job to update DNS if using dynamic IP with GCP DNS
-    ${var.dns_provider == "gcp" && !var.use_static_ip ? <<-CRON
-    cat > /etc/cron.d/update-dns <<'CRONEOF'
-    */5 * * * * root /usr/local/bin/update-dns.sh
-    CRONEOF
-
-    cat > /usr/local/bin/update-dns.sh <<'DNSEOF'
-    #!/bin/bash
-    ZONE="${var.environment}-dns-zone"
-    DOMAIN="${var.domain_name}"
-    CURRENT_IP=$(curl -s http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip -H "Metadata-Flavor: Google")
-    RECORDED_IP=$(dig +short @8.8.8.8 $DOMAIN)
-
-    if [ "$CURRENT_IP" != "$RECORDED_IP" ]; then
-      gcloud dns record-sets update $DOMAIN --type=A --zone=$ZONE --rrdatas=$CURRENT_IP --ttl=60
-      gcloud dns record-sets update www.$DOMAIN --type=A --zone=$ZONE --rrdatas=$CURRENT_IP --ttl=60
-      gcloud dns record-sets update mail.$DOMAIN --type=A --zone=$ZONE --rrdatas=$CURRENT_IP --ttl=60
-    fi
-    DNSEOF
-
-    chmod +x /usr/local/bin/update-dns.sh
-    CRON : ""}
+    echo "Startup script completed successfully at $(date)"
   EOF
 }
 
@@ -235,3 +272,32 @@ resource "google_dns_record_set" "mail_record" {
   rrdatas      = [local.vm_external_ip]
   project      = var.project_id
 }
+
+# Enable required Google Cloud APIs
+resource "google_project_service" "monitoring" {
+  project = var.project_id
+  service = "monitoring.googleapis.com"
+}
+
+resource "google_project_service" "logging" {
+  project = var.project_id
+  service = "logging.googleapis.com"
+}
+
+# Update Route53 domain nameservers to point to Google Cloud DNS
+resource "aws_route53domains_registered_domain" "main" {
+  count       = var.dns_provider == "gcp" ? 1 : 0
+  domain_name = var.domain_name
+
+  dynamic "name_server" {
+    for_each = google_dns_managed_zone.main[0].name_servers
+    content {
+      name = name_server.value
+    }
+  }
+
+  depends_on = [google_dns_managed_zone.main]
+}
+
+# Note: Advanced monitoring disabled for initial deployment
+# You can set up monitoring through the GCP Console after deployment

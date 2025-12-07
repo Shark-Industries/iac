@@ -54,3 +54,9 @@ variable "dns_provider" {
   type        = string
   default     = "gcp"
 }
+
+variable "alert_email" {
+  description = "Email address for monitoring alerts (leave empty to disable alerts)"
+  type        = string
+  default     = ""
+}
